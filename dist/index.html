@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wine Lottery</title>
+        <style>
+          html, body { height: 100%; }
+          body { padding: 0; margin: 0; overflow: hidden; background: transparent; }
+          .lotterybox { width: 80vw; height: 100vh; float: left; }
+          .dh-lottery .column.hidden { visibility: hidden; }
+          #dh-history-show { display: none; }
+          #dh-lottery-history { width: 20vw; height: 100vh; float: left; overflow-y: auto; }
+      #dh-lottery-history .col { width: 50%; float: left; }
+      #dh-lottery-history .dh-history-item .dh-history-user > div { padding: 0; text-align: left; width: auto; }
+      #dh-lottery-history .name { text-align: left; margin: 0; }
+      #dh-lottery-history .dh-history-item .dh-history-info { padding: 0; }
+      #dh-lottery-history .dh-history-item .dh-history-info p { line-height: 1; }
+      #dh-lottery-history .dh-history-item h3 { margin: 0; font-size: 17px; }
+      #dh-lottery-history .dh-history-item { padding-bottom: 0; padding-top: 6px; border: none; }
+      .main-title { position: absolute; width: 80%; text-align: center; }
+    </style>
+    <script src="/vendor/confetti.js"></script>
+    <script src="/vendor/lottie/lottie.min.js"></script>
+        <script type="module" crossorigin src="/assets/index-CZeI_o6l.js"></script>
+        <link rel="stylesheet" crossorigin href="/assets/index-DaZjTnul.css">
+      </head>
+      <body>
+        <div id="bg-neon"></div>
+        <div class="lotterybox"></div>
+        <div id="dh-lottery-history" class="is-active"></div>
+      </body>
+      </html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wine Lottery (Dev)</title>
+        <style>
+          html, body { height: 100%; }
+          body { margin: 0; padding: 0; overflow: hidden; background: transparent; color: #fff; }
+          .lotterybox { width: 80vw; height: 100vh; float: left; }
+          #dh-lottery-history { width: 20vw; height: 100vh; float: left; overflow-y: auto; }
+        </style>
+    <script src="/vendor/confetti.js"></script>
+    <script src="/vendor/lottie/lottie.min.js"></script>
+      </head>
+      <body>
+        <div id="bg-neon"></div>
+        <div class="lotterybox"></div>
+        <div id="dh-lottery-history" class="is-active"></div>
+        <script type="module" src="/src/main.js"></script>
+      </body>
+      </html>

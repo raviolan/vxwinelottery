@@ -1,0 +1,19 @@
+{
+  "name": "winedev",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "sass": "^1.81.0",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "jquery": "^3.7.1",
+    "lottie-web": "^5.13.0"
+  }
+}
