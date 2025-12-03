@@ -8,7 +8,9 @@ export function initSparkles(hostSelector = '.dh-lottery', count = 80) {
     host.appendChild(layer);
   }
 
+  const MAX_SPARKLES = 100;
   const spawn = () => {
+    if (layer.childElementCount >= MAX_SPARKLES) return;
     const s = document.createElement('span');
     s.className = 'sparkle';
     s.style.left = Math.random() * 100 + '%';
@@ -23,7 +25,6 @@ export function initSparkles(hostSelector = '.dh-lottery', count = 80) {
   for (let i = 0; i < count; i++) spawn();
   // continuous gentle sparkle
   setInterval(() => {
-    for (let i = 0; i < 4; i++) spawn();
-  }, 600);
+    for (let i = 0; i < 3; i++) spawn();
+  }, 800);
 }
-

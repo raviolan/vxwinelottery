@@ -19,8 +19,9 @@
     box-sizing: border-box;
 }
 
-/* Apply Barbie to history panel too */
-#dh-lottery-history {
+/* Apply Barbie to history panel and winner modal */
+#dh-lottery-history,
+#dh-lottery-winner {
   font-family: 'Barbie', cursive, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 @keyframes bgShift {
@@ -31,14 +32,14 @@
 
 /* Global neon-pink background behind everything */
 #bg-neon { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-#bg-neon::before, #bg-neon::after { content: ""; position: absolute; inset: -20%; }
+#bg-neon::before, #bg-neon::after { content: ""; position: absolute; inset: -8%; }
 /* Cloudy pink blobs with subtle motion */
 #bg-neon::before {
   background:
-    radial-gradient(40% 40% at 20% 30%, rgba(255, 105, 180, .45), transparent 60%),
-    radial-gradient(35% 35% at 80% 40%, rgba(255, 51, 153, .38), transparent 62%),
-    radial-gradient(30% 30% at 50% 85%, rgba(255, 180, 220, .40), transparent 65%);
-  filter: blur(40px);
+    radial-gradient(30% 30% at 20% 30%, rgba(255, 105, 180, .38), transparent 58%),
+    radial-gradient(26% 26% at 80% 40%, rgba(255, 51, 153, .32), transparent 60%),
+    radial-gradient(24% 24% at 50% 85%, rgba(255, 180, 220, .34), transparent 62%);
+  filter: blur(28px);
   animation: blobShift 18s ease-in-out infinite;
 }
 /* Glitter overlay */
@@ -46,9 +47,9 @@
   background-image:
     radial-gradient(circle, rgba(255,255,255,.55) 1px, transparent 1px),
     radial-gradient(circle, rgba(255,180,230,.45) 1px, transparent 1px);
-  background-size: 6px 6px, 8px 8px;
+  background-size: 4px 4px, 6px 6px;
   background-position: 0 0, 3px 4px;
-  opacity: .25;
+  opacity: .18;
   animation: glitterShift 6s linear infinite;
 }
 @keyframes blobShift {
@@ -64,6 +65,12 @@
 /* Lottie snow background (top background layer) */
 .snow-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .snow-layer svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0.9; mix-blend-mode: screen; }
+.snow-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0.92; mix-blend-mode: screen; }
+.snow-layer .snow-tile {
+  /* Soft edge mask to avoid visible seams where tiles meet */
+  -webkit-mask-image: radial-gradient(150% 150% at 50% 50%, #000 78%, transparent 100%);
+          mask-image: radial-gradient(150% 150% at 50% 50%, #000 78%, transparent 100%);
+}
 .running-lottery #dh-lottery-go {
     display: none;
 }
@@ -389,9 +396,12 @@
   margin-top: 16px;
   position: relative;
   z-index: 6;
+  opacity: 0;
+  transition: opacity .35s ease;
 }
+.winner-stage .winner-text.is-visible { opacity: 1; }
 .winner-stage .winner-text .profile-name {
-  font-size: 1.9em;
+  font-size: 3.2em;
   color: #ffffff;
   font-weight: 800;
   letter-spacing: 0.3px;
@@ -416,21 +426,21 @@
 
 /* Sparkle particles */
 .sparkle-layer { pointer-events: none; position: absolute; inset: 0; overflow: hidden; z-index: 1; }
-.sparkle { position: absolute; width: 8px; height: 8px; background: radial-gradient(circle, #fff, rgba(255,255,255,0));
-  filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ff99cc);
+.sparkle { position: absolute; width: 6px; height: 6px; background: radial-gradient(circle, #fff, rgba(255,255,255,0));
+  filter: drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #ff99cc);
   border-radius: 50%; opacity: 0; animation: twinkle 2.2s ease-in-out infinite; }
 @keyframes twinkle { 0% { transform: scale(0.2); opacity: 0; } 20% { opacity: 1; } 50% { transform: scale(1.1); opacity: 0.9; } 80% { opacity: 0; } 100% { transform: scale(0.2); opacity: 0; } }
 
 /* Falling glitter and snowflakes behind grid */
 .fall-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
-.flake { position: absolute; top: -6%; font-size: 18px; line-height: 1; color: #ffe6f6; opacity: .95;
+.flake { position: absolute; top: -6%; font-size: 16px; line-height: 1; color: #ffe6f6; opacity: .95;
   filter: drop-shadow(0 0 6px rgba(255,180,230,.95)) drop-shadow(0 0 14px rgba(255,140,210,.8));
   animation-name: fallY;
   animation-iteration-count: infinite;
   animation-timing-function: linear;
 }
-.flake--sm { font-size: 12px; opacity: .8; }
-.flake--lg { font-size: 28px; opacity: 1; filter: drop-shadow(0 0 8px rgba(255,190,235,1)) drop-shadow(0 0 18px rgba(255,150,220,.95)); }
+.flake--sm { font-size: 11px; opacity: .8; }
+.flake--lg { font-size: 24px; opacity: 1; filter: drop-shadow(0 0 8px rgba(255,190,235,1)) drop-shadow(0 0 16px rgba(255,150,220,.92)); }
 .flake--white { color: #fff; }
 .flake--hot { color: #ff8ccd; }
 @keyframes fallY { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }

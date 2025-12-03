@@ -2,6 +2,27 @@
 (function () {
   var settings = {};
   var lotteryBoxEl;
+  // Ensure winner names display with first letter uppercase and the rest lowercase
+  function formatDisplayName(name) {
+    try {
+      if (!name || typeof name !== 'string') return name;
+      return name
+        .trim()
+        .split(/\s+/)
+        .map(function(part){
+          return part
+            .split('-')
+            .map(function(seg){
+              var lower = seg.toLowerCase();
+              return lower ? lower.charAt(0).toUpperCase() + lower.slice(1) : seg;
+            })
+            .join('-');
+        })
+        .join(' ');
+    } catch (e) {
+      return name;
+    }
+  }
   var defaultOptions = {
     timeout: 4,
     once: true,
@@ -35,7 +56,7 @@
     e.preventDefault();
     return false;
   });
-  window.onbeforeunload = function() { return false; }
+  // Removed global onbeforeunload to avoid reload confirmation prompts
 
   var initDom = function(dom){
     var svgIcons = $("\
@@ -96,7 +117,11 @@
       }
     });
     $('#dh-lottery-winner .dh-modal-close').click(function() {
-      return $('#dh-lottery-winner').removeClass('is-active');
+      $('#dh-lottery-winner').removeClass('is-active');
+      // Disable beforeunload handler to avoid confirmation prompt before reloading
+      try { window.onbeforeunload = null; } catch(e) {}
+      try { window.location.reload(); } catch(e) {}
+      return false;
     });
     $('#dh-lottery-history .dh-history-clean').click(function() { cleanHistory(); });
 
@@ -318,6 +343,9 @@
           </div>\
         ");
         var cardSubTitle, cardTitle, cardDesc;
+        var displayName = '';
+        var displaySubtitle = '';
+        var displayDesc = '';
         if (winnerProfile) {
           stage.find('.winner-portrait').attr('src', winnerProfile['avatar']);
           if (winnerProfile['data'] && Object.keys(winnerProfile['data']).length > 0) {
@@ -325,10 +353,12 @@
             cardSubTitle = winnerProfile['data'][settings.subtitle];
             cardDesc = winnerProfile['data'][settings.desc];
           }
-          stage.find('.profile-name').text(cardTitle || winnerProfile['name'] );
-          stage.find('.profile-subtitle').text(cardSubTitle || winnerProfile['company']);
-          stage.find('.profile-desc').text(cardDesc || '');
+          displayName = formatDisplayName(cardTitle || winnerProfile['name']);
+          displaySubtitle = (cardSubTitle || winnerProfile['company']) || '';
+          displayDesc = (cardDesc || '') || '';
         }
+        // Hide text until portrait reveal completes
+        stage.find('.winner-text').removeClass('is-visible');
         $("#dh-lottery-winner .dh-modal-content").append(stage);
 
         // Initialize Lottie animations when available
@@ -371,10 +401,17 @@
             loadSanitized('/assets/lottie/lights-purple.json', stage.find('.winner-lights')[0], { loop: true });
             // Gift box (plays once)
             loadSanitized('/assets/lottie/gift-box.json', stage.find('.winner-giftbox')[0], { loop: false }).then(function(gift){
+              // Hide the selector spotlight as soon as the gift animation is ready to start
+              try { $('#dh-lottery-selector').hide(); } catch(e) {}
               try {
                 gift.addEventListener('complete', function(){
                   stage.find('.winner-portrait').addClass('is-revealed');
                   stage.find('.winner-giftbox').css('display','none');
+                  // Reveal text now that portrait is revealed
+                  stage.find('.profile-name').text(displayName);
+                  stage.find('.profile-subtitle').text(displaySubtitle);
+                  stage.find('.profile-desc').text(displayDesc);
+                  stage.find('.winner-text').addClass('is-visible');
                 });
               } catch(e) {}
             });
@@ -390,6 +427,11 @@
           if (!stage.find('.winner-portrait').hasClass('is-revealed')){
             stage.find('.winner-portrait').addClass('is-revealed');
             stage.find('.winner-giftbox').css('display','none');
+            // Fallback reveal of text after portrait
+            stage.find('.profile-name').text(displayName);
+            stage.find('.profile-subtitle').text(displaySubtitle);
+            stage.find('.profile-desc').text(displayDesc);
+            stage.find('.winner-text').addClass('is-visible');
           }
         }, 1500);
       }
@@ -461,7 +503,7 @@
   var updateWinnersList = function() { showHistory(); };
 
       var stopLottery = function(){
-        settings.$el.removeClass('running-lottery')
+        // Keep running-lottery state until winner modal appears to avoid overlay flicker
         clearTimeout(lotteryTimeout);
         clearTimeout(tickerTimeout);
         $("#dh-lottery-winner .dh-modal-content").html("");
@@ -483,20 +525,27 @@
         }
         setTimeout(function(){
           $(".dh-lottery .profile.current").removeClass('current');
-          currentTarget = [];
-          for (var i = 0; i < finalTargets.length; i++){
-            moveToTarget(i, finalTargets[i]);
-            currentTarget.push(finalTargets[i]);
+          // Start winner animations first to avoid early spotlight reveal
+          var winnerProfiles = [];
+          for (var t = 0; t < finalTargets.length; t++) {
+            var prof = JSON.parse(decodeURIComponent($($('.profile')[finalTargets[t]]).data('profile')));
+            var uid = prof['id'];
+            settings.winners.push(prof);
+            winnerProfiles.push(prof);
+            if(settings.once) settings.winnerList[uid] = true;
+            $($('.profile')[finalTargets[t]]).addClass('is-greyed');
           }
-          for (var j = 0; j < currentTarget.length; j++) {
-            var winnerProfile = JSON.parse(decodeURIComponent($($('.profile')[currentTarget[j]]).data('profile')));
-            var userId = winnerProfile['id'];
-            settings.winners.push(winnerProfile);
-            if(settings.once) settings.winnerList[userId] = true;
-            $($('.profile')[currentTarget[j]]).addClass('is-greyed');
-            pushWinner(winnerProfile);
-          }
+          // Mount winner stage and show modal immediately
+          for (var wp = 0; wp < winnerProfiles.length; wp++) pushWinner(winnerProfiles[wp]);
           $('#dh-lottery-winner').addClass('is-active');
+          // After a short delay, move the selector spotlight to the true winner under the modal
+          setTimeout(function(){
+            currentTarget = [];
+            for (var i = 0; i < finalTargets.length; i++){
+              moveToTarget(i, finalTargets[i]);
+              currentTarget.push(finalTargets[i]);
+            }
+          }, 180);
           $(".lotterybox").removeClass('running-lottery');
           clearInterval(lotteryInterval);
           lotteryInterval = null;
@@ -513,6 +562,7 @@
           settings.winnerHistory.push(history);
           localStorage.setItem('lotteryHistory',JSON.stringify(settings.winnerHistory));
           updateWinnersList();
+          // Winner drawn; no auto-reload here. Reload occurs on close (X) click.
           return winnerProfile;
         }, spins * 140 + 220);
       }
