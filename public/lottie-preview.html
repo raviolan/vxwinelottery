@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lottie Preview</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body { background: #111; color: #eee; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+      #stage { height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
+      /* Ensure the inserted Lottie element fills visible area */
+      #stage > * { width: 90vw !important; height: 80vh !important; display: block; }
+      #panel { position: fixed; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px; align-items: center; z-index: 10; }
+      #picker { min-width: 380px; max-width: 60vw; }
+      .btn { background: #ff49ba; color: #fff; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+      .btn:active { transform: translateY(1px); }
+      .field { background: #fff; color: #111; border: 1px solid rgba(0,0,0,0.2); border-radius: 6px; padding: 6px 8px; }
+      select.field, select.field option { color: #111; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <label for="mode">Mode:</label>
+      <select id="mode" class="field">
+        <option value="lottie" selected>Lottie Files</option>
+        <option value="demos">Showdown Demos</option>
+      </select>
+
+      <span id="lottie-controls">
+        <label for="picker">Animation:</label>
+        <select id="picker" class="field">
+          <option value="/assets/lottie/butterflies-magenta.json">butterflies-magenta</option>
+          <option value="/assets/lottie/butterflies-teal.json">butterflies-teal</option>
+          <option value="/assets/lottie/confetti.json">confetti</option>
+          <option value="/assets/lottie/confetti-pink.json">confetti-pink</option>
+          <option value="/assets/lottie/confetti-pastel.json">confetti-pastel</option>
+          <option value="/assets/lottie/confetti-glitter.json">confetti-glitter</option>
+          <option value="/assets/lottie/fireworks.json">fireworks</option>
+          <option value="/assets/lottie/fireworks-pink.json">fireworks-pink</option>
+          <option value="/assets/lottie/fireworks-pastel.json">fireworks-pastel</option>
+          <option value="/assets/lottie/fireworks-glitter.json">fireworks-glitter</option>
+          <option value="/assets/lottie/burst.json">burst</option>
+          <option value="/assets/lottie/burst-pink.json">burst-pink</option>
+          <option value="/assets/lottie/burst-pastel.json">burst-pastel</option>
+          <option value="/assets/lottie/burst-glitter.json">burst-glitter</option>
+          <option value="/assets/lottie/lights-purple.json">lights-purple</option>
+          <option value="/assets/lottie/lights-pink.json">lights-pink</option>
+          <option value="/assets/lottie/lights-pastel.json">lights-pastel</option>
+          <option value="/assets/lottie/lights-glitter.json">lights-glitter</option>
+          <option value="/assets/lottie/snow.json">snow</option>
+        </select>
+        <input type="file" id="file" class="field" accept=".json" />
+        <label for="renderer">Renderer:</label>
+        <select id="renderer" class="field">
+          <option value="svg" selected>SVG</option>
+          <option value="canvas">Canvas</option>
+        </select>
+        <button id="reload" class="btn">Reload</button>
+      </span>
+
+      <span id="demo-controls" style="display:none">
+        <label>Contender A:</label>
+        <input id="nameA" class="field" placeholder="Name A" value="Alice" />
+        <label>Contender B:</label>
+        <input id="nameB" class="field" placeholder="Name B" value="Bella" />
+        <label>Winner:</label>
+        <select id="winnerPref" class="field">
+          <option value="random" selected>Random</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+        </select>
+        <label>Demo:</label>
+        <select id="demoPicker" class="field">
+          <option value="tug">Tug-of-War Meter</option>
+          <option value="coin">Coin Flip Faceoff</option>
+          <option value="wheel">Spinning Wheel (10 slices)</option>
+        </select>
+        <button id="playDemo" class="btn">Play</button>
+      </span>
+    </div>
+    <div id="stage"></div>
+
+    <script src="/vendor/lottie/lottie.min.js"></script>
+    <script>
+      (function(){
+        const stage = document.getElementById('stage');
+        const modeSel = document.getElementById('mode');
+        const lottiePane = document.getElementById('lottie-controls');
+        const demoPane = document.getElementById('demo-controls');
+        const picker = document.getElementById('picker');
+        const file = document.getElementById('file');
+        const rendererSel = document.getElementById('renderer');
+        const reloadBtn = document.getElementById('reload');
+        // Demo controls
+        const nameA = document.getElementById('nameA');
+        const nameB = document.getElementById('nameB');
+        const winnerPref = document.getElementById('winnerPref');
+        const demoPicker = document.getElementById('demoPicker');
+        const playDemo = document.getElementById('playDemo');
+        let anim;
+        // Avatars from app sample data for Viola/Johan
+        let avatarIndex = {};
+        let defaultA = '';
+        let defaultB = '';
+        fetch('/sample-data.json').then(r=>r.json()).then(list=>{
+          list.forEach(p=>{ if (p && p.name && p.avatar) avatarIndex[String(p.name).toUpperCase()] = p.avatar; });
+          const violaKey = Object.keys(avatarIndex).find(k=>k.startsWith('VIOLA'));
+          const johanKey = Object.keys(avatarIndex).find(k=>k.startsWith('JOHAN'));
+          if (violaKey) { defaultA = avatarIndex[violaKey]; nameA.value = 'Viola'; }
+          if (johanKey) { defaultB = avatarIndex[johanKey]; nameB.value = 'Johan'; }
+        }).catch(()=>{});
+
+        function resolveAvatar(name, fallback){
+          if (!name) return fallback || '';
+          const key = String(name).toUpperCase();
+          if (avatarIndex[key]) return avatarIndex[key];
+          const hit = Object.keys(avatarIndex).find(k=>k.startsWith(key.split(' ')[0]));
+          return hit ? avatarIndex[hit] : (fallback||'');
+        }
+
+        function mount(data, renderer){
+          if (anim) try { anim.destroy(); } catch(e) {}
+          stage.innerHTML = '';
+          anim = lottie.loadAnimation({
+            container: stage,
+            renderer: renderer || rendererSel.value || 'svg',
+            loop: true,
+            autoplay: true,
+            animationData: data,
+            rendererSettings: { preserveAspectRatio: 'xMidYMid meet', clearCanvas: true }
+          });
+          // Simple fallback: if nothing appears shortly, try the other renderer
+          const tryFallback = setTimeout(() => {
+            const hasContent = stage.querySelector('svg, canvas');
+            if (!hasContent) {
+              const alt = (rendererSel.value === 'svg') ? 'canvas' : 'svg';
+              rendererSel.value = alt;
+              mount(data, alt);
+            }
+          }, 800);
+        }
+
+        function processData(data, src){
+          try {
+            if (typeof src === 'string' && src.indexOf('butterflies-teal') !== -1) {
+              // Recolor magenta-ish to teal
+              var isMagentaish = function(r,g,b){
+                var maxRB = Math.max(r,b), minRB = Math.min(r,b);
+                return (g <= 0.55 && maxRB >= 0.5 && (r - g) >= 0.15 && (b - g) >= 0.15 && Math.abs(r - b) <= 0.35);
+              };
+              var toTeal = function(col){
+                if (!Array.isArray(col) || col.length < 3) return col;
+                var r = col[0], g = col[1], b = col[2], a = (col[3] != null ? col[3] : 1);
+                if (isMagentaish(r,g,b)) return [0.0, 0.82, 0.82, a];
+                return [r,g,b,a];
+              };
+              var recolorColorProp = function(prop){
+                if (!prop) return;
+                if (Array.isArray(prop.k) && typeof prop.k[0] === 'number') { prop.k = toTeal(prop.k); return; }
+                if (Array.isArray(prop.k) && prop.k.length && typeof prop.k[0] === 'object') { prop.k.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = toTeal(kf.s); }); return; }
+                if (prop.k && Array.isArray(prop.k.k)) {
+                  var kk = prop.k.k;
+                  if (kk.length && typeof kk[0] === 'object') kk.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = toTeal(kf.s); });
+                  if (kk.length && typeof kk[0] === 'number') prop.k.k = toTeal(kk);
+                }
+              };
+              var recolorGradientProp = function(gprop){
+                if (!gprop || !gprop.k) return;
+                var arr = gprop.k.k || gprop.k;
+                if (Array.isArray(arr)) {
+                  for (var i = 0; i < arr.length - 3; i += 4) {
+                    var repl = toTeal([arr[i+1], arr[i+2], arr[i+3], 1]);
+                    arr[i+1] = repl[0]; arr[i+2] = repl[1]; arr[i+3] = repl[2];
+                  }
+                  if (gprop.k.k) gprop.k.k = arr; else gprop.k = arr;
+                }
+              };
+              (function walk(obj){
+                if (!obj || typeof obj !== 'object') return;
+                if ((obj.ty === 'fl' || obj.ty === 'st') && obj.c) recolorColorProp(obj.c);
+                if ((obj.ty === 'gf' || obj.ty === 'gs') && obj.g) recolorGradientProp(obj.g);
+                for (var key in obj) if (Object.prototype.hasOwnProperty.call(obj, key)) walk(obj[key]);
+              })(data);
+            }
+            // Themed recolors for lights/confetti/fireworks/burst variants
+            if (typeof src === 'string' && (/(lights-|confetti-|fireworks-|burst-)/.test(src))) {
+              var makePalette = function(kind){
+                switch(kind){
+                  case 'pink': return [[1.0,0.4,0.76,1],[1.0,0.18,0.67,1],[1.0,0.58,0.85,1],[0.9,0.62,1.0,1],[1.0,0.74,0.9,1]];
+                  case 'pastel': return [[1.0,0.82,0.91,1],[0.96,0.87,1.0,1],[0.93,0.95,1.0,1],[1.0,0.95,0.98,1],[1.0,0.92,0.96,1]];
+                  case 'glitter': return [[1.0,1.0,1.0,1],[1.0,0.96,0.99,1],[1.0,0.91,0.97,1],[0.98,0.9,1.0,1],[1.0,0.86,0.96,1]];
+                  default: return null;
+                }
+              };
+              var kind = (src.indexOf('pink') !== -1) ? 'pink' : (src.indexOf('pastel') !== -1) ? 'pastel' : (src.indexOf('glitter') !== -1) ? 'glitter' : null;
+              var palette = makePalette(kind);
+              if (palette) {
+                var idx = 0; var pick = function(){ var c = palette[idx % palette.length]; idx++; return c; };
+                var setColorProp = function(prop){
+                  if (!prop) return;
+                  if (Array.isArray(prop.k) && typeof prop.k[0] === 'number') { prop.k = pick(); return; }
+                  if (Array.isArray(prop.k) && prop.k.length && typeof prop.k[0] === 'object') { prop.k.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = pick(); }); return; }
+                  if (prop.k && Array.isArray(prop.k.k)) {
+                    var kk = prop.k.k;
+                    if (kk.length && typeof kk[0] === 'object') kk.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = pick(); });
+                    if (kk.length && typeof kk[0] === 'number') prop.k.k = pick();
+                  }
+                };
+                var setGradientProp = function(gprop){
+                  if (!gprop || !gprop.k) return;
+                  var arr = gprop.k.k || gprop.k;
+                  if (Array.isArray(arr)) {
+                    for (var i = 0; i < arr.length - 3; i += 4) { var c = pick(); arr[i+1] = c[0]; arr[i+2] = c[1]; arr[i+3] = c[2]; }
+                    if (gprop.k.k) gprop.k.k = arr; else gprop.k = arr;
+                  }
+                };
+                (function walkPal(obj){
+                  if (!obj || typeof obj !== 'object') return;
+                  if ((obj.ty === 'fl' || obj.ty === 'st') && obj.c) setColorProp(obj.c);
+                  if ((obj.ty === 'gf' || obj.ty === 'gs') && obj.g) setGradientProp(obj.g);
+                  for (var key in obj) if (Object.prototype.hasOwnProperty.call(obj, key)) walkPal(obj[key]);
+                })(data);
+              }
+            }
+          } catch(e) { console.warn('Preview recolor skipped:', e); }
+          return data;
+        }
+
+        function loadURL(url){
+          fetch(url).then(r => r.json()).then(d => mount(processData(d, url))).catch(err => {
+            console.error('Failed to load', url, err);
+            alert('Failed to load: ' + url + '\n' + err);
+          });
+        }
+
+        picker.addEventListener('change', () => loadURL(picker.value));
+        reloadBtn.addEventListener('click', () => loadURL(picker.value));
+        rendererSel.addEventListener('change', () => loadURL(picker.value));
+        file.addEventListener('change', (e) => {
+          const f = e.target.files && e.target.files[0];
+          if (!f) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try { mount(processData(JSON.parse(reader.result), 'local-file')); } catch(e) { console.error('Invalid JSON', e); alert('Invalid JSON file'); }
+          };
+          reader.readAsText(f);
+        });
+
+        // Support query param ?file=/assets/lottie/xyz.json
+        const u = new URL(location.href);
+        const q = u.searchParams.get('file');
+        if (q) {
+          loadURL(q);
+          for (const opt of picker.options) if (opt.value === q) opt.selected = true;
+        } else {
+          loadURL(picker.value);
+        }
+
+        // Mode switching
+        function setMode(m){
+          if (m === 'demos') {
+            lottiePane.style.display = 'none';
+            demoPane.style.display = '';
+            stage.innerHTML = '';
+            buildDemoShell();
+          } else {
+            demoPane.style.display = 'none';
+            lottiePane.style.display = '';
+            loadURL(picker.value);
+          }
+        }
+        modeSel.addEventListener('change', () => setMode(modeSel.value));
+
+        // Demo implementations
+        function pickWinner(){
+          const pref = winnerPref.value;
+          if (pref === 'A') return 'A';
+          if (pref === 'B') return 'B';
+          return Math.random() < 0.5 ? 'A' : 'B';
+        }
+
+        function buildDemoShell(){
+          stage.innerHTML = '';
+          // A/B header
+          const hdr = document.createElement('div');
+          hdr.style.position = 'absolute';
+          hdr.style.top = '60px';
+          hdr.style.left = '0';
+          hdr.style.right = '0';
+          hdr.style.display = 'flex';
+          hdr.style.justifyContent = 'space-between';
+          hdr.style.padding = '0 8%';
+          const aSrc = resolveAvatar(nameA.value, defaultA);
+          const bSrc = resolveAvatar(nameB.value, defaultB);
+          hdr.innerHTML = `
+            <div style="text-align:center">
+              <img src="${aSrc}" alt="A" style="width:120px;height:120px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 4px #ff8ccc, 0 6px 22px rgba(255,140,210,.7)" />
+              <div style="font-size:18px;color:#ff9ad6;margin-top:8px">A</div>
+              <div style="font-size:28px">${nameA.value||'A'}</div>
+            </div>
+            <div style="text-align:center">
+              <img src="${bSrc}" alt="B" style="width:120px;height:120px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 4px #9ae7ff, 0 6px 22px rgba(154,231,255,.7)" />
+              <div style="font-size:18px;color:#9ae7ff;margin-top:8px">B</div>
+              <div style="font-size:28px">${nameB.value||'B'}</div>
+            </div>`;
+          stage.appendChild(hdr);
+          const demo = document.createElement('div');
+          demo.id = 'demoArea';
+          demo.style.width = '90vw';
+          demo.style.height = '60vh';
+          demo.style.display = 'flex';
+          demo.style.alignItems = 'center';
+          demo.style.justifyContent = 'center';
+          stage.appendChild(demo);
+        }
+
+        function playTug(){
+          buildDemoShell();
+          const demo = document.getElementById('demoArea');
+          const bar = document.createElement('div');
+          bar.style.width = '72vw';
+          bar.style.height = '20px';
+          bar.style.borderRadius = '20px';
+          bar.style.background = 'linear-gradient(90deg, #ff8ccb, #ffd6ee)';
+          bar.style.position = 'relative';
+          bar.style.boxShadow = '0 0 20px rgba(255,140,210,.6) inset, 0 6px 20px rgba(0,0,0,.35)';
+          const thumb = document.createElement('div');
+          thumb.style.width = '32px';
+          thumb.style.height = '32px';
+          thumb.style.borderRadius = '50%';
+          thumb.style.background = 'radial-gradient(circle at 35% 35%, #fff, #ffe3f6)';
+          thumb.style.position = 'absolute';
+          thumb.style.top = '-6px';
+          thumb.style.left = 'calc(50% - 16px)';
+          thumb.style.boxShadow = '0 0 12px rgba(255,255,255,.8), 0 0 28px rgba(255,140,210,.8)';
+          bar.appendChild(thumb);
+          demo.appendChild(bar);
+          let pos = 0; // -50..+50 (% of half-bar)
+          const jitter = setInterval(()=>{
+            pos += (Math.random()*12-6);
+            pos = Math.max(-48, Math.min(48, pos));
+            thumb.style.left = `calc(${50+pos}% - 16px)`;
+          }, 160);
+          setTimeout(()=>{
+            clearInterval(jitter);
+            const win = pickWinner();
+            const target = (win === 'A') ? -48 : 48;
+            const start = pos; const dur = 700; const t0 = performance.now();
+            function step(t){
+              const p = Math.min(1, (t - t0)/dur);
+              const ease = 1 - Math.pow(1-p, 3);
+              pos = start + (target - start)*ease;
+              thumb.style.left = `calc(${50+pos}% - 16px)`;
+              if (p < 1) requestAnimationFrame(step); else showWinner(win);
+            }
+            requestAnimationFrame(step);
+          }, 1600);
+        }
+
+        function playCoin(){
+          buildDemoShell();
+          const demo = document.getElementById('demoArea');
+          const coinWrap = document.createElement('div');
+          coinWrap.style.width = '220px';
+          coinWrap.style.height = '220px';
+          coinWrap.style.position = 'absolute';
+          coinWrap.style.left = '50%';
+          coinWrap.style.top = '50%';
+          coinWrap.style.transform = 'translate(-50%, -50%)';
+          const coin = document.createElement('div');
+          coin.style.width = '220px';
+          coin.style.height = '220px';
+          coin.style.borderRadius = '50%';
+          coin.style.position = 'absolute';
+          coin.style.inset = '0';
+          coin.style.transformStyle = 'preserve-3d';
+          coin.style.perspective = '800px';
+          const makeFace = (txt, bg)=>{
+            const f = document.createElement('div');
+            f.style.position = 'absolute';
+            f.style.inset = '0';
+            f.style.borderRadius = '50%';
+            f.style.backfaceVisibility = 'hidden';
+            f.style.display = 'flex'; f.style.alignItems = 'center'; f.style.justifyContent = 'center';
+            f.style.fontSize = '28px'; f.style.fontWeight = '800';
+            f.style.boxShadow = '0 0 28px rgba(255,140,210,.7) inset, 0 10px 30px rgba(0,0,0,.35)';
+            f.style.background = bg;
+            f.textContent = txt;
+            return f;
+          };
+          // Both sides pink (no blue)
+          const a = makeFace('', 'radial-gradient(circle at 30% 30%, #ffe3f6, #ff98d4)');
+          const b = makeFace('', 'radial-gradient(circle at 30% 30%, #ffe3f6, #ff98d4)');
+          b.style.transform = 'rotateY(180deg)';
+          // Portraits on coin faces
+          const aImg = document.createElement('img'); aImg.src = resolveAvatar(nameA.value, defaultA);
+          Object.assign(aImg.style,{width:'160px',height:'160px',borderRadius:'50%',objectFit:'cover',boxShadow:'0 0 0 4px #ff8ccc, 0 10px 24px rgba(255,140,210,.7)'});
+          const bImg = document.createElement('img'); bImg.src = resolveAvatar(nameB.value, defaultB);
+          Object.assign(bImg.style,{width:'160px',height:'160px',borderRadius:'50%',objectFit:'cover',boxShadow:'0 0 0 4px #9ae7ff, 0 10px 24px rgba(154,231,255,.7)'});
+          a.appendChild(aImg); b.appendChild(bImg);
+          coin.appendChild(a); coin.appendChild(b);
+          coinWrap.appendChild(coin);
+          demo.appendChild(coinWrap);
+          const win = pickWinner();
+          // Spin then settle
+          const spins = 14 + Math.floor(Math.random()*6); // much longer suspense
+          const targetDeg = (win === 'A') ? 0 : 180;
+          const total = spins*360 + targetDeg;
+          const coinDuration = 5600;
+          const anim = coin.animate([{transform:'rotateY(0deg)'},{transform:`rotateY(${total}deg)`}],{duration:coinDuration,easing:'cubic-bezier(.1,.9,.1,1)',fill:'forwards'});
+          let blastStarted = false;
+          const startBlast = ()=>{
+            if (blastStarted) return; blastStarted = true;
+            try {
+              const blast = document.createElement('div');
+              Object.assign(blast.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%, -50%)',pointerEvents:'none',zIndex:'0'});
+              demo.appendChild(blast);
+              const butter = ['/assets/lottie/butterflies-magenta.json','/assets/lottie/butterflies-teal.json'];
+              const firew = ['/assets/lottie/fireworks.json','/assets/lottie/fireworks-pink.json','/assets/lottie/fireworks-pastel.json','/assets/lottie/fireworks-glitter.json'];
+              const conf  = ['/assets/lottie/confetti.json','/assets/lottie/confetti-pink.json','/assets/lottie/confetti-pastel.json','/assets/lottie/confetti-glitter.json'];
+              const burst = ['/assets/lottie/burst.json','/assets/lottie/burst-pink.json','/assets/lottie/burst-pastel.json','/assets/lottie/burst-glitter.json'];
+              const pickSeq = [firew,butter,conf,firew,butter,burst,conf,firew,butter,burst];
+              let iSpawn = 0; const totalSpawns = 36;
+              const sanitize = (json)=>{ const blocked=/(kurage|watermark|website|mobile|apps|software|lottiefiles|author|credits)/i; const drop=(layer)=>{ const n=(layer&&layer.nm?String(layer.nm):''); return layer.ty===5||blocked.test(n)||layer.t; }; const strip=(obj)=>{ if(obj.layers&&Array.isArray(obj.layers)){ obj.layers=obj.layers.filter(l=>!drop(l)); obj.layers.forEach(strip);} if(obj.assets&&Array.isArray(obj.assets)) obj.assets.forEach(strip); return obj; }; try{return strip(json);}catch(e){return json;}};
+              const timer = setInterval(()=>{
+                if (iSpawn >= totalSpawns) { clearInterval(timer); return; }
+                const set = pickSeq[iSpawn % pickSeq.length] || firew;
+                const p = set[Math.floor(Math.random()*set.length)];
+                const holder = document.createElement('div'); Object.assign(holder.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%, -50%)'});
+                const inner = document.createElement('div'); Object.assign(inner.style,{width:(220+Math.floor(Math.random()*220))+'px',height:(220+Math.floor(Math.random()*220))+'px',transformOrigin:'center',opacity:'0'});
+                holder.appendChild(inner); blast.appendChild(holder);
+                const side = (Math.random()<0.5)?-1:1; const dx = side*(120+Math.random()*220); const dy = -(90+Math.random()*160); const rot=(Math.random()*30-15).toFixed(1); const dur=2400+Math.floor(Math.random()*900);
+                try { inner.animate([{transform:`translate(0px,0px) scale(.6) rotate(${rot}deg)`,opacity:.0},{transform:`translate(${(dx*0.45).toFixed(0)}px, ${(dy*0.45).toFixed(0)}px) scale(1.0) rotate(${rot}deg)`,opacity:0.95},{transform:`translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px) scale(1.2) rotate(${rot}deg)`,opacity:0.0}],{duration:dur,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});} catch(e) {}
+                try { fetch(p).then(r=>r.json()).then(d=>sanitize(d)).then(clean=>{ if (window.lottie) window.lottie.loadAnimation({container:inner,renderer:'svg',loop:false,autoplay:true,animationData:clean,rendererSettings:{preserveAspectRatio:'xMidYMid meet',clearCanvas:false}}); }).catch(()=>{});} catch(e) {}
+                iSpawn++;
+              }, 140);
+              setTimeout(()=>{ try { clearInterval(timer); blast.remove(); } catch(e) {} }, 6500);
+            } catch(e) {}
+          };
+          try { setTimeout(startBlast, Math.max(0, coinDuration - 1400)); } catch(e) {}
+          anim.onfinish = ()=>{
+            if (!blastStarted) try { startBlast(); } catch(e) {}
+            // Micro reveal: keep the coin face (winner side), glide coin left,
+            // and let the runner emerge from behind to the right.
+            const center = document.createElement('div');
+            center.style.position='absolute'; center.style.left='50%'; center.style.top='50%'; center.style.transform='translate(-50%,-50%)';
+            demo.appendChild(center);
+            const aSrc = resolveAvatar(nameA.value, defaultA);
+            const bSrc = resolveAvatar(nameB.value, defaultB);
+            const mkRunner = (src)=>{
+              const wrap = document.createElement('div');
+              Object.assign(wrap.style,{position:'absolute',left:'0',top:'0',width:'180px',height:'180px',opacity:'0'});
+              const i = document.createElement('img'); i.src=src||''; Object.assign(i.style,{width:'180px',height:'180px',borderRadius:'50%',objectFit:'cover',boxShadow:'0 0 0 4px #e6e6e6, 0 10px 24px rgba(154,154,154,.5)',position:'absolute',left:'0',top:'0'});
+              const medal = document.createElement('span'); medal.textContent='🥈'; Object.assign(medal.style,{position:'absolute',right:'6px',bottom:'6px',fontSize:'78px',color:'#fff',zIndex:'3',filter:'drop-shadow(0 2px 4px rgba(0,0,0,.45)) drop-shadow(0 0 10px rgba(255,255,255,.85))'});
+              // Sparkles
+              const sp1 = document.createElement('span'); sp1.textContent='✧'; Object.assign(sp1.style,{position:'absolute',right:'-6px',bottom:'28px',fontSize:'18px',color:'#fff',filter:'drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffb3e6)'});
+              const sp2 = document.createElement('span'); sp2.textContent='✦'; Object.assign(sp2.style,{position:'absolute',right:'28px',bottom:'-4px',fontSize:'22px',color:'#fff',filter:'drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffc7ef)'});
+              const sp3 = document.createElement('span'); sp3.textContent='✧'; Object.assign(sp3.style,{position:'absolute',right:'-14px',bottom:'-10px',fontSize:'14px',color:'#fff',filter:'drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #ffd1f3)'});
+              try { sp1.animate([{transform:'scale(.8)',opacity:.6},{transform:'scale(1.25)',opacity:1},{transform:'scale(.8)',opacity:.6}],{duration:900,iterations:Infinity}); } catch(e) {}
+              try { sp2.animate([{transform:'scale(.9) rotate(0deg)',opacity:.7},{transform:'scale(1.3) rotate(12deg)',opacity:1},{transform:'scale(.9) rotate(0deg)',opacity:.7}],{duration:1050,iterations:Infinity}); } catch(e) {}
+              try { sp3.animate([{transform:'scale(.7)',opacity:.5},{transform:'scale(1.2)',opacity:.95},{transform:'scale(.7)',opacity:.5}],{duration:800,iterations:Infinity}); } catch(e) {}
+              wrap.appendChild(i); wrap.appendChild(medal); wrap.appendChild(sp1); wrap.appendChild(sp2); wrap.appendChild(sp3);
+              return wrap;
+            };
+            const runWrap = (win==='A') ? mkRunner(bSrc) : mkRunner(aSrc);
+            center.appendChild(runWrap);
+            // Blast of themed Lottie animations behind the winner
+            try {
+              const blast = document.createElement('div');
+              Object.assign(blast.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%, -50%)',pointerEvents:'none',zIndex:'0'});
+              demo.appendChild(blast);
+              const butter = ['/assets/lottie/butterflies-magenta.json','/assets/lottie/butterflies-teal.json'];
+              const firew = ['/assets/lottie/fireworks.json','/assets/lottie/fireworks-pink.json','/assets/lottie/fireworks-pastel.json','/assets/lottie/fireworks-glitter.json'];
+              const conf = ['/assets/lottie/confetti.json','/assets/lottie/confetti-pink.json','/assets/lottie/confetti-pastel.json','/assets/lottie/confetti-glitter.json'];
+              const burst = ['/assets/lottie/burst.json','/assets/lottie/burst-pink.json','/assets/lottie/burst-pastel.json','/assets/lottie/burst-glitter.json'];
+              const pickSeq = [firew,butter,conf,firew,butter,burst,conf,firew,butter,burst];
+              let iSpawn = 0;
+              const totalSpawns = 36;
+              const sanitize = (json)=>{
+                const blocked=/(kurage|watermark|website|mobile|apps|software|lottiefiles|author|credits)/i;
+                const drop=(layer)=>{ const n=(layer&&layer.nm?String(layer.nm):''); return layer.ty===5||blocked.test(n)||layer.t; };
+                const strip=(obj)=>{ if(obj.layers&&Array.isArray(obj.layers)){ obj.layers=obj.layers.filter(l=>!drop(l)); obj.layers.forEach(strip);} if(obj.assets&&Array.isArray(obj.assets)) obj.assets.forEach(strip); return obj; };
+                try{return strip(json);}catch(e){return json;}
+              };
+              const timer = setInterval(()=>{
+                if (iSpawn >= totalSpawns) { clearInterval(timer); return; }
+                const set = pickSeq[iSpawn % pickSeq.length] || firew;
+                const p = set[Math.floor(Math.random()*set.length)];
+                const holder = document.createElement('div'); Object.assign(holder.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%, -50%)'});
+                const inner = document.createElement('div'); Object.assign(inner.style,{width:(220+Math.floor(Math.random()*220))+'px',height:(220+Math.floor(Math.random()*220))+'px',transformOrigin:'center',opacity:'0'});
+                holder.appendChild(inner); blast.appendChild(holder);
+                const side = (Math.random()<0.5)?-1:1;
+                const dx = side*(120+Math.random()*220);
+                const dy = -(90+Math.random()*160);
+                const rot = (Math.random()*30-15).toFixed(1);
+                const dur = 2400 + Math.floor(Math.random()*900);
+                try { inner.animate([
+                  {transform:`translate(0px,0px) scale(.6) rotate(${rot}deg)`,opacity:.0},
+                  {transform:`translate(${(dx*0.45).toFixed(0)}px, ${(dy*0.45).toFixed(0)}px) scale(1.0) rotate(${rot}deg)`,opacity:0.95},
+                  {transform:`translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px) scale(1.2) rotate(${rot}deg)`,opacity:0.0}
+                ],{duration:dur,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'}); } catch(e) {}
+                try { fetch(p).then(r=>r.json()).then(d=>sanitize(d)).then(clean=>{
+                  if (window.lottie) window.lottie.loadAnimation({container:inner,renderer:'svg',loop:false,autoplay:true,animationData:clean,rendererSettings:{preserveAspectRatio:'xMidYMid meet',clearCanvas:false}});
+                }).catch(()=>{}); } catch(e) {}
+                iSpawn++;
+              }, 140);
+              setTimeout(()=>{ try { clearInterval(timer); blast.remove(); } catch(e) {} }, 6500);
+            } catch(e) {}
+
+            // Animate: keep centered; winner (coin) scales up slightly; runner emerges below
+            coinWrap.animate([{transform:'translate(-50%, -50%) scale(1.0)'},{transform:'translate(-50%, -62%) scale(1.12)'}],{duration:900,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
+            runWrap.animate([{transform:'translate(-50%, -50%) scale(0.98)',opacity:0},{transform:'translate(-50%, 130px) scale(0.98)',opacity:1}],{duration:900,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
+            setTimeout(()=>showWinner(win), 1000);
+          };
+        }
+
+        function playWheel(){
+          buildDemoShell();
+          const demo = document.getElementById('demoArea');
+          const wheel = document.createElement('div');
+          const slices = 10;
+          const colorsA = ['#ff9ad6','#ffb3e1'];
+          const colorsB = ['#9ae7ff','#c0f1ff'];
+          // Build conic gradient alternating A/B
+          const seg = 360/slices;
+          let stops = [];
+          for (let i=0;i<slices;i++){
+            const isA = i%2===0; const cset = isA?colorsA:colorsB;
+            const from = i*seg; const to = (i+1)*seg;
+            stops.push(`${cset[0]} ${from}deg ${from+seg*0.5}deg`);
+            stops.push(`${cset[1]} ${from+seg*0.5}deg ${to}deg`);
+          }
+          wheel.style.width = '420px'; wheel.style.height = '420px'; wheel.style.borderRadius = '50%';
+          wheel.style.background = `conic-gradient(${stops.join(',')})`;
+          wheel.style.boxShadow = '0 24px 60px rgba(0,0,0,.35), inset 0 0 24px rgba(255,255,255,.5)';
+          wheel.style.position = 'relative';
+          // Labels
+          for (let i=0;i<slices;i++){
+            const lab = document.createElement('div');
+            lab.style.position='absolute';
+            lab.style.left='50%'; lab.style.top='50%';
+            lab.style.transform=`rotate(${i*seg}deg) translate(0, -170px) rotate(${-i*seg}deg)`;
+            lab.style.transformOrigin='center';
+            lab.style.fontSize='16px'; lab.style.fontWeight='700'; lab.style.color='#222';
+            lab.textContent = (i%2===0 ? (nameA.value||'A') : (nameB.value||'B'));
+            wheel.appendChild(lab);
+          }
+          // Pointer
+          const ptr = document.createElement('div');
+          ptr.style.position='absolute'; ptr.style.left='50%'; ptr.style.top='-22px';
+          ptr.style.width='0'; ptr.style.height='0';
+          ptr.style.borderLeft='14px solid transparent';
+          ptr.style.borderRight='14px solid transparent';
+          ptr.style.borderBottom='24px solid #fff';
+          ptr.style.filter='drop-shadow(0 6px 8px rgba(0,0,0,.35))';
+          demo.appendChild(wheel); demo.appendChild(ptr);
+          const win = pickWinner();
+          // Target a random slice of the winning side under the pointer (top)
+          const winSlices = Array.from({length:slices}).map((_,i)=>i).filter(i=> (win==='A') ? (i%2===0) : (i%2===1));
+          const chosen = winSlices[Math.floor(Math.random()*winSlices.length)];
+          const stopAngle = 360*4 + (360 - chosen*seg - seg/2); // center of chosen slice at top
+          wheel.animate([{transform:'rotate(0deg)'},{transform:`rotate(${stopAngle}deg)`}],{duration:1700,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'}).onfinish = ()=>showWinner(win);
+        }
+
+        function showWinner(who){
+          // Crown on winner header portrait, silver 2nd on the other
+          const hdr = stage.querySelector('div[style*="justify-content: space-between"]');
+          if (hdr) {
+            const cols = hdr.children;
+            if (cols && cols.length === 2) {
+              const winnerCol = (who==='A') ? cols[0] : cols[1];
+              const runnerCol = (who==='A') ? cols[1] : cols[0];
+              // Crown emoji near winner image
+              const crown = document.createElement('div');
+              crown.textContent = '👑';
+              crown.style.position='absolute'; crown.style.fontSize='34px'; crown.style.transform='translate(-14px, -8px) rotate(-12deg)';
+              const imgW = winnerCol.querySelector('img');
+              if (imgW && imgW.parentElement) {
+                imgW.parentElement.style.position='relative';
+                imgW.parentElement.appendChild(crown);
+              }
+              // Silver 2nd badge on runner image
+              const second = document.createElement('div');
+              second.textContent = '2nd';
+              second.style.position='absolute'; second.style.right='-6px'; second.style.bottom='-6px';
+              second.style.background='linear-gradient(135deg,#e6e6e6,#9e9e9e)'; second.style.color='#222';
+              second.style.borderRadius='16px'; second.style.padding='4px 8px'; second.style.fontSize='12px'; second.style.fontWeight='800';
+              second.style.boxShadow='0 3px 10px rgba(0,0,0,.25),0 0 0 3px rgba(255,255,255,.85)';
+              const imgR = runnerCol.querySelector('img');
+              if (imgR && imgR.parentElement) {
+                imgR.parentElement.style.position='relative';
+                imgR.parentElement.appendChild(second);
+              }
+            }
+          }
+          const banner = document.createElement('div');
+          banner.textContent = (who==='A' ? `👑 ${nameA.value||'A'} wins!` : `👑 ${nameB.value||'B'} wins!`);
+          banner.style.position='absolute'; banner.style.bottom='60px'; banner.style.left='0'; banner.style.right='0';
+          banner.style.textAlign='center'; banner.style.fontSize='28px'; banner.style.fontWeight='900';
+          banner.style.color='#fff'; banner.style.textShadow='0 2px 10px rgba(255,140,210,.9)';
+          stage.appendChild(banner);
+        }
+
+        playDemo.addEventListener('click', ()=>{
+          const d = demoPicker.value;
+          if (d==='tug') playTug();
+          else if (d==='coin') playCoin();
+          else playWheel();
+        });
+      })();
+    </script>
+  </body>
+  </html>

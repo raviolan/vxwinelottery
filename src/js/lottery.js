@@ -23,6 +23,51 @@
       return name;
     }
   }
+
+  // Winner animation variants for randomized layers (extend via window.WINNER_ANIM_VARIANTS)
+  var WINNER_ANIM_VARIANTS = {
+    lights: [
+      '/assets/lottie/lights-purple.json',
+      '/assets/lottie/lights-pink.json',
+      '/assets/lottie/lights-pastel.json',
+      '/assets/lottie/lights-glitter.json'
+    ],
+    // "Butterfly animation" pool: always choose something (no empty option)
+    overlay: [
+      '/assets/lottie/butterflies-magenta.json',
+      '/assets/lottie/butterflies-teal.json',
+      '/assets/lottie/confetti.json',
+      '/assets/lottie/confetti-pink.json',
+      '/assets/lottie/confetti-pastel.json',
+      '/assets/lottie/confetti-glitter.json',
+      '/assets/lottie/fireworks.json',
+      '/assets/lottie/fireworks-pink.json',
+      '/assets/lottie/fireworks-pastel.json',
+      '/assets/lottie/fireworks-glitter.json',
+      '/assets/lottie/burst.json',
+      '/assets/lottie/burst-pink.json',
+      '/assets/lottie/burst-pastel.json',
+      '/assets/lottie/burst-glitter.json'
+    ]
+  };
+  if (typeof window !== 'undefined' && window.WINNER_ANIM_VARIANTS) {
+    try {
+      // Shallow merge arrays if provided
+      ['lights','overlay'].forEach(function(k){
+        if (Array.isArray(window.WINNER_ANIM_VARIANTS[k])) {
+          WINNER_ANIM_VARIANTS[k] = window.WINNER_ANIM_VARIANTS[k].slice();
+        }
+      });
+    } catch(e) {}
+  }
+  function pickRandom(arr, opts){
+    var a = Array.isArray(arr) ? arr : [];
+    if (!a.length) return null;
+    // If null is present and disallowed, filter out
+    if (opts && opts.noNull) a = a.filter(function(x){ return x; });
+    if (!a.length) return null;
+    return a[Math.floor(Math.random()*a.length)] || null;
+  }
   var defaultOptions = {
     timeout: 4,
     once: true,
@@ -156,6 +201,16 @@
         if ($('.lotterybox').hasClass('running-lottery')) return;
         return $('#dh-lottery-go').click();
       }
+      // Option/Alt + R triggers Roll
+      try {
+        var isAltR = (e.altKey === true) && (e.key === 'r' || e.key === 'R');
+        if (isAltR) {
+          e.preventDefault();
+          if ($('#dh-lottery-winner').hasClass('is-active')) return;
+          if ($('.lotterybox').hasClass('running-lottery')) return;
+          return $('#dh-lottery-go').click();
+        }
+      } catch(_) {}
       if (e.key == 'd') {
         if(confirm('Vill du rensa dragna platser?')) { cleanHistory(); return; }
       }
@@ -326,7 +381,9 @@
     return n;
   }
 
-      var pushWinner = function(winnerProfile){
+      var pushWinner = function(winnerProfile, opts){
+        opts = opts || {};
+        var noGift = !!opts.noGift;
         var stage = $("\
           <div class='winner-stage'>\
             <div class='winner-lights'></div>\
@@ -365,6 +422,26 @@
         try {
           var l = window.lottie;
           if (l) {
+            // Helper: keep lights centered behind the portrait
+            var positionLights = function(){
+              try {
+                var ctr = stage.find('.winner-center')[0];
+                var lights = stage.find('.winner-lights')[0];
+                var portrait = stage.find('.winner-portrait')[0];
+                if (!ctr || !lights || !portrait) return;
+                var cr = ctr.getBoundingClientRect();
+                var pr = portrait.getBoundingClientRect();
+                var cx = pr.left + pr.width/2 - cr.left;
+                var cy = pr.top + pr.height/2 - cr.top;
+                lights.style.left = cx + 'px';
+                lights.style.top = cy + 'px';
+                var sz = Math.max(pr.width * 3.0, 320);
+                lights.style.width = sz + 'px';
+                lights.style.height = sz + 'px';
+                lights.style.transform = 'translate(-50%, -50%)';
+              } catch(e) {}
+            };
+            var _onResizeLights = function(){ positionLights(); };
             var sanitize = function(json){
               var blocked = /(kurage|watermark|website|mobile|apps|software|lottiefiles|author|credits)/i;
               function shouldDrop(layer){
@@ -393,32 +470,193 @@
             var loadSanitized = function(path, container, opts){
               return fetch(path).then(function(r){ return r.json(); }).then(function(data){
                 var clean = sanitize(data);
+                // Optional recolor passes for specific themed variants
+                if (typeof path === 'string' && path.indexOf('butterflies-teal') !== -1) {
+                  try {
+                    var isMagentaish = function(r,g,b){
+                      var maxRB = Math.max(r,b), minRB = Math.min(r,b);
+                      return (
+                        g <= 0.55 &&
+                        maxRB >= 0.5 &&
+                        (r - g) >= 0.15 &&
+                        (b - g) >= 0.15 &&
+                        Math.abs(r - b) <= 0.35
+                      );
+                    };
+                    var toTeal = function(col){
+                      if (!Array.isArray(col) || col.length < 3) return col;
+                      var r = col[0], g = col[1], b = col[2], a = (col[3] != null ? col[3] : 1);
+                      if (isMagentaish(r,g,b)) return [0.0, 0.82, 0.82, a];
+                      return [r,g,b,a];
+                    };
+                    var recolorColorProp = function(prop){
+                      if (!prop) return;
+                      // Static color: prop = { a:0, k:[r,g,b,1] }
+                      if (Array.isArray(prop.k) && typeof prop.k[0] === 'number') {
+                        prop.k = toTeal(prop.k);
+                        return;
+                      }
+                      // Keyframed color: prop = { a:1, k:[{s:[r,g,b,1], ...}, ...] }
+                      if (Array.isArray(prop.k) && prop.k.length && typeof prop.k[0] === 'object') {
+                        prop.k.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = toTeal(kf.s); });
+                        return;
+                      }
+                      // Nested structures seen in some exports
+                      if (prop.k && Array.isArray(prop.k.k)) {
+                        var kk = prop.k.k;
+                        if (kk.length && typeof kk[0] === 'object') kk.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = toTeal(kf.s); });
+                        if (kk.length && typeof kk[0] === 'number') prop.k.k = toTeal(kk);
+                      }
+                    };
+                    var recolorGradientProp = function(gprop){
+                      if (!gprop || !gprop.k) return;
+                      var arr = gprop.k.k || gprop.k;
+                      if (Array.isArray(arr)) {
+                        for (var i = 0; i < arr.length - 3; i += 4) {
+                          var repl = toTeal([arr[i+1], arr[i+2], arr[i+3], 1]);
+                          arr[i+1] = repl[0]; arr[i+2] = repl[1]; arr[i+3] = repl[2];
+                        }
+                        if (gprop.k.k) gprop.k.k = arr; else gprop.k = arr;
+                      }
+                    };
+                    var walk = function(obj){
+                      if (!obj || typeof obj !== 'object') return;
+                      // Solid fills and strokes
+                      if ((obj.ty === 'fl' || obj.ty === 'st') && obj.c) recolorColorProp(obj.c);
+                      // Gradients (fill or stroke)
+                      if ((obj.ty === 'gf' || obj.ty === 'gs') && obj.g) recolorGradientProp(obj.g);
+                      // Recurse into shape groups and other nested structures
+                      for (var key in obj) if (Object.prototype.hasOwnProperty.call(obj, key)) walk(obj[key]);
+                    };
+                    walk(clean);
+                  } catch (e) {}
+                }
+                // Lights / Confetti / Fireworks / Burst themed palettes
+                if (typeof path === 'string' && (/(lights-|confetti-|fireworks-|burst-)/.test(path))) {
+                  try {
+                    var makePalette = function(kind){
+                      switch(kind){
+                        case 'pink':
+                          return [
+                            [1.0, 0.4, 0.76, 1],   // hot pink
+                            [1.0, 0.18, 0.67, 1],  // magenta pink
+                            [1.0, 0.58, 0.85, 1],  // candy pink
+                            [0.9, 0.62, 1.0, 1],   // lavender
+                            [1.0, 0.74, 0.9, 1]    // blush
+                          ];
+                        case 'pastel':
+                          return [
+                            [1.0, 0.82, 0.91, 1],  // pastel pink
+                            [0.96, 0.87, 1.0, 1],  // pastel lavender
+                            [0.93, 0.95, 1.0, 1],  // powder blue
+                            [1.0, 0.95, 0.98, 1],  // soft rose
+                            [1.0, 0.92, 0.96, 1]   // light blush
+                          ];
+                        case 'glitter':
+                          return [
+                            [1.0, 1.0, 1.0, 1],    // white highlight
+                            [1.0, 0.96, 0.99, 1],  // pearl
+                            [1.0, 0.91, 0.97, 1],  // shimmer pink
+                            [0.98, 0.9, 1.0, 1],   // shimmer lilac
+                            [1.0, 0.86, 0.96, 1]   // sparkle rose
+                          ];
+                        default:
+                          return null;
+                      }
+                    };
+                    var kind = (path.indexOf('lights-pink') !== -1 || path.indexOf('confetti-pink') !== -1 || path.indexOf('fireworks-pink') !== -1 || path.indexOf('burst-pink') !== -1) ? 'pink'
+                              : (path.indexOf('lights-pastel') !== -1 || path.indexOf('confetti-pastel') !== -1 || path.indexOf('fireworks-pastel') !== -1 || path.indexOf('burst-pastel') !== -1) ? 'pastel'
+                              : (path.indexOf('lights-glitter') !== -1 || path.indexOf('confetti-glitter') !== -1 || path.indexOf('fireworks-glitter') !== -1 || path.indexOf('burst-glitter') !== -1) ? 'glitter'
+                              : null;
+                    var palette = makePalette(kind);
+                    if (palette) {
+                      var idx = 0;
+                      var pick = function(){ var c = palette[idx % palette.length]; idx++; return c; };
+                      var setColorProp = function(prop){
+                        if (!prop) return;
+                        if (Array.isArray(prop.k) && typeof prop.k[0] === 'number') { prop.k = pick(); return; }
+                        if (Array.isArray(prop.k) && prop.k.length && typeof prop.k[0] === 'object') {
+                          prop.k.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = pick(); });
+                          return;
+                        }
+                        if (prop.k && Array.isArray(prop.k.k)) {
+                          var kk = prop.k.k;
+                          if (kk.length && typeof kk[0] === 'object') kk.forEach(function(kf){ if (kf && Array.isArray(kf.s)) kf.s = pick(); });
+                          if (kk.length && typeof kk[0] === 'number') prop.k.k = pick();
+                        }
+                      };
+                      var setGradientProp = function(gprop){
+                        if (!gprop || !gprop.k) return;
+                        var arr = gprop.k.k || gprop.k;
+                        if (Array.isArray(arr)) {
+                          for (var i = 0; i < arr.length - 3; i += 4) {
+                            var c = pick();
+                            arr[i+1] = c[0]; arr[i+2] = c[1]; arr[i+3] = c[2];
+                          }
+                          if (gprop.k.k) gprop.k.k = arr; else gprop.k = arr;
+                        }
+                      };
+                      var walkPal = function(obj){
+                        if (!obj || typeof obj !== 'object') return;
+                        if ((obj.ty === 'fl' || obj.ty === 'st') && obj.c) setColorProp(obj.c);
+                        if ((obj.ty === 'gf' || obj.ty === 'gs') && obj.g) setGradientProp(obj.g);
+                        for (var key in obj) if (Object.prototype.hasOwnProperty.call(obj, key)) walkPal(obj[key]);
+                      };
+                      walkPal(clean);
+                    }
+                  } catch (e) {}
+                }
                 return l.loadAnimation(Object.assign({ container: container, renderer: 'svg', autoplay: true }, opts || {}, { animationData: clean }));
               });
             };
 
+            // Randomized Lottie variants per winner
+            var lightsPath = pickRandom(WINNER_ANIM_VARIANTS.lights, { noNull: true });
+            var overlayPath = pickRandom(WINNER_ANIM_VARIANTS.overlay, { noNull: true });
+            if (!overlayPath) overlayPath = '/assets/lottie/butterflies-magenta.json';
+            var centerPath = '/assets/lottie/gift-box.json';
             // Lights (loop)
-            loadSanitized('/assets/lottie/lights-purple.json', stage.find('.winner-lights')[0], { loop: true });
-            // Gift box (plays once)
-            loadSanitized('/assets/lottie/gift-box.json', stage.find('.winner-giftbox')[0], { loop: false }).then(function(gift){
-              // Hide the selector spotlight as soon as the gift animation is ready to start
-              try { $('#dh-lottery-selector').hide(); } catch(e) {}
-              try {
-                gift.addEventListener('complete', function(){
-                  stage.find('.winner-portrait').addClass('is-revealed');
-                  stage.find('.winner-giftbox').css('display','none');
-                  // Reveal text now that portrait is revealed
-                  stage.find('.profile-name').text(displayName);
-                  stage.find('.profile-subtitle').text(displaySubtitle);
-                  stage.find('.profile-desc').text(displayDesc);
-                  stage.find('.winner-text').addClass('is-visible');
-                });
-              } catch(e) {}
-            });
-            // Butterflies slightly after start
-            setTimeout(function(){
-              loadSanitized('/assets/lottie/butterflies-magenta.json', stage.find('.winner-butterflies')[0], { loop: false });
-            }, 400);
+            if (lightsPath) {
+              loadSanitized(lightsPath, stage.find('.winner-lights')[0], { loop: true }).then(function(){
+                positionLights();
+                try { window.addEventListener('resize', _onResizeLights); } catch(e) {}
+              });
+            }
+            // Centerpiece (plays once) unless disabled via noGift
+            if (!noGift) {
+              loadSanitized(centerPath, stage.find('.winner-giftbox')[0], { loop: false }).then(function(gift){
+                // Hide the selector spotlight as soon as the gift animation is ready to start
+                try { $('#dh-lottery-selector').hide(); } catch(e) {}
+                try {
+                  gift.addEventListener('complete', function(){
+                    stage.find('.winner-portrait').addClass('is-revealed');
+                    stage.find('.winner-giftbox').css('display','none');
+                    positionLights();
+                    // Reveal text now that portrait is revealed
+                    stage.find('.profile-name').text(displayName);
+                    stage.find('.profile-subtitle').text(displaySubtitle);
+                    stage.find('.profile-desc').text(displayDesc);
+                    stage.find('.winner-text').addClass('is-visible');
+                    // Start overlay ("butterfly animation") slightly after reveal begins (~15%)
+                    try {
+                      setTimeout(function(){
+                        if (overlayPath) loadSanitized(overlayPath, stage.find('.winner-butterflies')[0], { loop: false });
+                      }, 120);
+                    } catch(e) {}
+                  });
+                } catch(e) {}
+              });
+            } else {
+              // No gift flow: reveal immediately and start overlay shortly after
+              stage.find('.winner-portrait').addClass('is-revealed');
+              stage.find('.winner-giftbox').css('display','none');
+              positionLights();
+              stage.find('.profile-name').text(displayName);
+              stage.find('.profile-subtitle').text(displaySubtitle);
+              stage.find('.profile-desc').text(displayDesc);
+              stage.find('.winner-text').addClass('is-visible');
+              try { setTimeout(function(){ if (overlayPath) loadSanitized(overlayPath, stage.find('.winner-butterflies')[0], { loop: false }); }, 120); } catch(e) {}
+            }
           }
         } catch(e) {}
 
@@ -427,11 +665,18 @@
           if (!stage.find('.winner-portrait').hasClass('is-revealed')){
             stage.find('.winner-portrait').addClass('is-revealed');
             stage.find('.winner-giftbox').css('display','none');
+            try { positionLights(); } catch(e) {}
             // Fallback reveal of text after portrait
             stage.find('.profile-name').text(displayName);
             stage.find('.profile-subtitle').text(displaySubtitle);
             stage.find('.profile-desc').text(displayDesc);
             stage.find('.winner-text').addClass('is-visible');
+            // Start overlay ~15% into reveal if we got here via fallback
+            try {
+              setTimeout(function(){
+                if (overlayPath) loadSanitized(overlayPath, stage.find('.winner-butterflies')[0], { loop: false });
+              }, 120);
+            } catch(e) {}
           }
         }, 1500);
       }
@@ -502,6 +747,373 @@
 
   var updateWinnersList = function() { showHistory(); };
 
+      // Final-two coin faceoff animation. Expects two profile indices.
+      var startFinalTwoFaceoff = function(indexA, indexB){
+        try { $('#dh-lottery-selector').hide(); } catch(e) {}
+        var profA = JSON.parse(decodeURIComponent($($('.profile')[indexA]).data('profile')));
+        var profB = JSON.parse(decodeURIComponent($($('.profile')[indexB]).data('profile')));
+        var container = $("#dh-lottery-winner .dh-modal-content");
+        container.html("");
+        // Ensure no cropping during the faceoff (allow animations to overflow nicely)
+        try {
+          $("#dh-lottery-winner").css({ overflow: 'visible' });
+          container.css({ overflow: 'visible', maxHeight: 'none', width: '100%', padding: '0' });
+        } catch(e) {}
+        var shell = $("<div class='final-two-faceoff' style='position:relative;width:100%;height:calc(100vh - 40px);overflow:visible'></div>");
+          var makeCoin = function(){
+          var wrap = $("<div style='width:260px;height:260px;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);perspective:900px;z-index:2'></div>");
+          var coin = $("<div style='position:absolute;inset:0;border-radius:50%;transform-style:preserve-3d;'></div>");
+          var mkFace = function(imgUrl, ringColor){
+            var f = $("<div style='position:absolute;inset:0;border-radius:50%;backface-visibility:hidden;display:flex;align-items:center;justify-content:center;box-shadow:0 0 28px rgba(255,140,210,.7) inset, 0 10px 30px rgba(0,0,0,.35);background:radial-gradient(circle at 30% 30%, #ffe3f6, #ff98d4)'></div>");
+            var img = $("<img alt='face' />");
+            img.attr('src', imgUrl);
+            img.css({ width: '180px', height: '180px', borderRadius: '50%', objectFit: 'cover', boxShadow: '0 0 0 4px '+ringColor+', 0 10px 24px rgba(255,140,210,.7)' });
+            f.append(img);
+            return f;
+          };
+          var faceA = mkFace(profA.avatar || '', '#ff8ccc');
+          var faceB = mkFace(profB.avatar || '', '#ff8ccc').css({ transform: 'rotateY(180deg)' });
+          coin.append(faceA, faceB);
+          wrap.append(coin);
+          return { wrap: wrap, coin: coin };
+        };
+        var c = makeCoin();
+        // No header labels (A/B or names) for the final-two faceoff
+        shell.append(c.wrap);
+        container.append(shell);
+        $('#dh-lottery-winner').addClass('is-active');
+
+        // Merge-in thumbnails to either side of coin, then spin
+        try {
+          var mergeLayer = $("<div class='final-two-merge' style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;pointer-events:none;'></div>");
+          var mkThumb = function(src, dx){
+            var t = $("<img alt='thumb' />");
+            t.attr('src', src||'');
+            t.css({ width:'120px', height:'120px', borderRadius:'50%', objectFit:'cover', position:'absolute', left:'0', top:'0', transform:'translate('+dx+'px, 0) scale(.9)', opacity:0, boxShadow:'0 0 0 3px #fff, 0 6px 16px rgba(0,0,0,.35)' });
+            return t;
+          };
+          var tA = mkThumb(profA.avatar, -240);
+          var tB = mkThumb(profB.avatar, 240);
+          mergeLayer.append(tA, tB);
+          shell.append(mergeLayer);
+          try { tA[0].animate([{transform:'translate(-240px,0) scale(.9)',opacity:0},{transform:'translate(-110px,0) scale(1)',opacity:1},{transform:'translate(-110px,0) scale(1)',opacity:0}],{duration:600,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'}); } catch(e) {}
+          try { tB[0].animate([{transform:'translate(240px,0) scale(.9)',opacity:0},{transform:'translate(110px,0) scale(1)',opacity:1},{transform:'translate(110px,0) scale(1)',opacity:0}],{duration:600,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'}); } catch(e) {}
+          setTimeout(function(){ try { mergeLayer.remove(); } catch(e) {} }, 720);
+        } catch(e) {}
+
+        // Decide winner and spin
+        var winSide = Math.random() < 0.5 ? 'A' : 'B';
+        var spins = 14 + Math.floor(Math.random()*6);
+        var targetDeg = (winSide === 'A') ? 0 : 180;
+        var total = spins*360 + targetDeg;
+        var el = c.coin[0];
+        var coinDuration = 5600;
+        var anim = setTimeout(function(){ try { el.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY('+total+'deg)' }], { duration: coinDuration, easing: 'cubic-bezier(.1,.9,.1,1)', fill: 'forwards' }).onfinish = function(){
+          var winnerIndex = (winSide === 'A') ? indexA : indexB;
+          var runnerIndex = (winSide === 'A') ? indexB : indexA;
+          // Winner/runner micro reveal animation: Keep coin centered, scale up, runner emerges below
+          try {
+            var faceWrap = c.wrap;
+            var winnerProfile = JSON.parse(decodeURIComponent($($('.profile')[winnerIndex]).data('profile')));
+            var runnerProfile = JSON.parse(decodeURIComponent($($('.profile')[runnerIndex]).data('profile')));
+            var overlay = $("<div class='final-two-overlay' style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;'></div>");
+            var runWrap = $("<div class='final-two-runner' style='position:absolute;left:0;top:0;width:180px;height:180px;opacity:0;z-index:1'></div>");
+            var runImg = $("<img alt='runner' />"); runImg.attr('src', runnerProfile.avatar || ''); runImg.css({ width:'180px', height:'180px', borderRadius:'50%', objectFit:'cover', boxShadow:'0 0 0 4px #e6e6e6, 0 10px 24px rgba(154,154,154,.5)', position:'absolute', left:'0', top:'0' });
+            var silver = $("<span class='final-two-medal' style='position:absolute;right:6px;bottom:6px;font-size:78px;z-index:3;color:#fff;filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)) drop-shadow(0 0 10px rgba(255,255,255,.85))'>🥈</span>");
+            var sp1 = $("<span style='position:absolute;right:-6px;bottom:28px;font-size:18px;color:#fff;filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffb3e6)'>✧</span>");
+            var sp2 = $("<span style='position:absolute;right:28px;bottom:-4px;font-size:22px;color:#fff;filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffc7ef)'>✦</span>");
+            var sp3 = $("<span style='position:absolute;right:-14px;bottom:-10px;font-size:14px;color:#fff;filter: drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #ffd1f3)'>✧</span>");
+            try { sp1[0].animate([{transform:'scale(.8)',opacity:.6},{transform:'scale(1.25)',opacity:1},{transform:'scale(.8)',opacity:.6}],{duration:900,iterations:Infinity}); } catch(e) {}
+            try { sp2[0].animate([{transform:'scale(.9) rotate(0deg)',opacity:.7},{transform:'scale(1.3) rotate(12deg)',opacity:1},{transform:'scale(.9) rotate(0deg)',opacity:.7}],{duration:1050,iterations:Infinity}); } catch(e) {}
+            try { sp3[0].animate([{transform:'scale(.7)',opacity:.5},{transform:'scale(1.2)',opacity:.95},{transform:'scale(.7)',opacity:.5}],{duration:800,iterations:Infinity}); } catch(e) {}
+            runWrap.append(runImg, silver, sp1, sp2, sp3); overlay.append(runWrap); shell.append(overlay);
+            faceWrap[0].animate([{ transform:'translate(-50%, -50%) scale(1.0)' },{ transform:'translate(-50%, -62%) scale(1.12)' }], { duration: 900, easing: 'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+            runWrap[0].animate([{ transform:'translate(-50%, -50%) scale(0.98)', opacity:0 },{ transform:'translate(-50%, 130px) scale(0.98)', opacity:1 }], { duration: 900, easing: 'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+          } catch(e) {}
+          setTimeout(function(){ try {
+            var winnerProfile2 = JSON.parse(decodeURIComponent($($('.profile')[(winSide === 'A')?indexA:indexB]).data('profile')));
+            // Mark winner/runner in data and grid UI
+            settings.winners = [winnerProfile2];
+            if (settings.once) settings.winnerList[winnerProfile2['id']] = true;
+            $($('.profile')[(winSide === 'A')?indexA:indexB]).addClass('is-greyed');
+            try {
+              var runnerProfEl = $($('.profile')[(winSide === 'A')?indexB:indexA]);
+              var avatar = runnerProfEl.find('.avatar .image').first();
+              if (avatar && avatar.length && avatar.find('.dh-badge-silver').length === 0) {
+                var badge = $("<span class='dh-badge-silver' style='position:absolute;right:-6px;bottom:-6px;background:linear-gradient(135deg,#e6e6e6,#9e9e9e);color:#222;border-radius:16px;padding:4px 8px;font-size:12px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.25),0 0 0 3px rgba(255,255,255,.85);z-index:5'>2nd</span>");
+                avatar.css('position','relative');
+                avatar.append(badge);
+              }
+            } catch(e) {}
+            // Show winner name (Barbie font, centered) with crown, without launching full winner stage
+            try {
+              var banner = $("<div class='final-two-winner-banner' style=\"position:absolute;z-index:3;text-align:center;font-size:2.2em;font-weight:900;color:#fff;text-shadow:0 2px 10px rgba(255,140,210,.9)\"></div>");
+              var crownName = '👑 ' + (winnerProfile2.name || 'Winner');
+              // Structure for reveal: masking wrap + text + leading sparkle
+              var wrap = $("<span class='ftw-wrap' style=\"display:inline-block;position:relative;overflow:hidden;vertical-align:top\"></span>");
+              var textSpan = $("<span class='ftw-text'></span>");
+              textSpan.text(crownName);
+              textSpan.css({ display: 'inline-block', whiteSpace: 'nowrap', padding: '0 6px' });
+              var sparkle = $("<span class='ftw-sparkle' style=\"position:absolute;top:50%;left:0;transform:translate(-50%,-60%);font-size:22px;color:#fff;filter:drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffc7ef)\">✧</span>");
+              wrap.append(textSpan, sparkle);
+              banner.append(wrap);
+              // enforce Barbie font
+              banner.css('font-family', "'Barbie', cursive, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif");
+              shell.append(banner);
+              // Position banner centered just above the coin (winner)
+              try {
+                var cr = c.wrap[0].getBoundingClientRect();
+                var sr = shell[0].getBoundingClientRect();
+                var cx = cr.left + cr.width/2 - sr.left;
+                var cy = cr.top - sr.top - 12;
+                banner.css({ left: cx + 'px', top: cy + 'px', transform: 'translate(-50%, -100%)' });
+              } catch(_) {}
+              // Animate reveal from left to right
+              try {
+                // Measure full width then animate wrap width
+                var tw = textSpan[0].getBoundingClientRect().width;
+                wrap.css('width', '0px');
+                wrap[0].animate([{ width: '0px' }, { width: tw + 'px' }], { duration: 1100, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+                // Move main sparkle along the text
+                sparkle[0].animate([{ left: '0px', opacity: .9 }, { left: (tw + 6) + 'px', opacity: 0.0 }], { duration: 1100, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+                // Spawn trailing sparkles during reveal (denser stream)
+                var tStart = performance.now();
+                var glyphs = ['✦','✧','✺','❇'];
+                function spawnSparkle(progress){
+                  var jitterX = (Math.random() * 10) - 5;
+                  var jitterY = (Math.random() * 8) - 4;
+                  var sx = Math.max(0, Math.min(tw, Math.round(progress * tw + jitterX)));
+                  var ch = glyphs[Math.floor(Math.random() * glyphs.length)];
+                  var size = 14 + Math.round(Math.random()*8);
+                  var s = $("<span style=\"position:absolute;top:50%;left:"+sx+"px;transform:translate(-50%, calc(-60% + "+jitterY+"px));font-size:"+size+"px;color:#fff;filter:drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffc7ef)\">"+ch+"</span>");
+                  wrap.append(s);
+                  try {
+                    s[0].animate([
+                      { opacity:.0, transform:'translate(-50%, calc(-60% + "+jitterY+"px)) scale(.6)' },
+                      { opacity:1, transform:'translate(-50%, calc(-60% + "+(jitterY-2)+"px)) scale(1.05)' },
+                      { opacity:0, transform:'translate(-50%, calc(-60% + "+jitterY+"px)) scale(.7)' }
+                    ], { duration: 820, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+                  } catch(_) {}
+                  setTimeout(function(){ try { s.remove(); } catch(e) {} }, 900);
+                }
+                var trail = setInterval(function(){
+                  try {
+                    var elapsed = performance.now() - tStart;
+                    if (elapsed > 1100) { clearInterval(trail); return; }
+                    var prog = Math.min(1, elapsed / 1100);
+                    // spawn two sparkles per tick for density
+                    spawnSparkle(prog);
+                    spawnSparkle(Math.max(0, prog - 0.05));
+                  } catch(e) { try { clearInterval(trail); } catch(_) {} }
+                }, 60);
+              } catch(e) {}
+            } catch(e) {}
+            if (settings.confetti) window.startConfetti();
+            if (window.heartsBurst) try { window.heartsBurst(); } catch(e) {}
+            setTimeout(function(){ return window.stopConfetti(); }, 2200);
+            var history = {}; history.time = (new Date()).toLocaleString(); history.winner = {}; history.winner[0] = winnerProfile2;
+            settings.winnerHistory.push(history);
+            localStorage.setItem('lotteryHistory', JSON.stringify(settings.winnerHistory));
+            updateWinnersList();
+          } catch(e) {} }, 1300);
+        }; } catch(e){} }, 380);
+        var blastStarted = false;
+        var startWinnerBlast = function(){ if (blastStarted) return; blastStarted = true;
+            // Blast stream behind winner: longer, streaming, mixed types (fireworks, butterflies, confetti, burst)
+            try {
+              var blast = $("<div class='final-two-blast' style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0'></div>");
+              shell.append(blast);
+              var overlayList = (typeof WINNER_ANIM_VARIANTS !== 'undefined' && WINNER_ANIM_VARIANTS && WINNER_ANIM_VARIANTS.overlay) ? WINNER_ANIM_VARIANTS.overlay : [];
+              var butter = overlayList.filter(function(p){ return /butterfl/i.test(p||''); });
+              var firew  = overlayList.filter(function(p){ return /firework/i.test(p||''); });
+              var conf   = overlayList.filter(function(p){ return /confetti/i.test(p||''); });
+              var burst  = overlayList.filter(function(p){ return /burst/i.test(p||''); });
+              if (!butter.length) butter = ['/assets/lottie/butterflies-magenta.json','/assets/lottie/butterflies-teal.json'];
+              if (!firew.length)  firew  = ['/assets/lottie/fireworks.json','/assets/lottie/fireworks-pink.json','/assets/lottie/fireworks-pastel.json','/assets/lottie/fireworks-glitter.json'];
+              if (!conf.length)   conf   = ['/assets/lottie/confetti.json','/assets/lottie/confetti-pink.json','/assets/lottie/confetti-pastel.json','/assets/lottie/confetti-glitter.json'];
+              if (!burst.length)  burst  = ['/assets/lottie/burst.json','/assets/lottie/burst-pink.json','/assets/lottie/burst-pastel.json','/assets/lottie/burst-glitter.json'];
+              var pickSeq = [firew, butter, conf, firew, butter, burst, conf, firew, butter, burst];
+              var iSpawn = 0;
+              var totalSpawns = 36;
+              var tick = setInterval(function(){
+                if (iSpawn >= totalSpawns) { clearInterval(tick); return; }
+                var set = pickSeq[iSpawn % pickSeq.length] || firew;
+                var path = set[Math.floor(Math.random()*set.length)];
+                var holder = $("<div style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'></div>");
+                var w = 220 + Math.floor(Math.random()*220);
+                var h = 220 + Math.floor(Math.random()*220);
+                var inner = $("<div style='width:"+w+"px;height:"+h+"px;transform-origin:center;opacity:.0'></div>");
+                holder.append(inner); blast.append(holder);
+                var side = (Math.random() < 0.5) ? -1 : 1;
+                var dx = side * (120 + Math.random()*220);
+                var dy = - (90 + Math.random()*160);
+                var rot = (Math.random()*30 - 15).toFixed(1);
+                var dur = 2400 + Math.floor(Math.random()*900);
+                try {
+                  inner[0].animate([
+                    { transform: 'translate(0px, 0px) scale(0.6) rotate('+rot+'deg)', opacity: .0 },
+                    { transform: 'translate('+(dx*0.45)+'px, '+(dy*0.45)+'px) scale(1.0) rotate('+rot+'deg)', opacity: .95 },
+                    { transform: 'translate('+dx+'px, '+dy+'px) scale(1.2) rotate('+rot+'deg)', opacity: .0 }
+                  ], { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+                } catch(e) {}
+                // sanitize and load
+                (function(container, pth){
+                  var sanitize = function(json){
+                    var blocked = /(kurage|watermark|website|mobile|apps|software|lottiefiles|author|credits)/i;
+                    var shouldDrop = function(layer){ var n=(layer&&layer.nm?String(layer.nm):''); return layer.ty===5 || blocked.test(n) || layer.t; };
+                    var strip = function(obj){ if (obj.layers && Array.isArray(obj.layers)) { obj.layers = obj.layers.filter(function(l){ return !shouldDrop(l); }); obj.layers.forEach(strip); } if (obj.assets && Array.isArray(obj.assets)) obj.assets.forEach(strip); return obj; };
+                    try { return strip(json); } catch(e){ return json; }
+                  };
+                  try {
+                    fetch(pth).then(function(r){ return r.json(); }).then(function(data){
+                      var clean = sanitize(data);
+                      if (window.lottie) window.lottie.loadAnimation({ container: container, renderer: 'svg', loop: false, autoplay: true, animationData: clean, rendererSettings: { preserveAspectRatio: 'xMidYMid meet', clearCanvas: false } });
+                    }).catch(function(){});
+                  } catch(e) {}
+                })(inner[0], path);
+                iSpawn++;
+              }, 140);
+              setTimeout(function(){ try { clearInterval(tick); blast.remove(); } catch(e) {} }, 6500);
+            } catch(e) {}
+        };
+        // Start winner blast slightly before the coin stops
+        try { setTimeout(startWinnerBlast, Math.max(0, coinDuration - 1400)); } catch(e) {}
+        anim.onfinish = function(){
+          if (!blastStarted) try { startWinnerBlast(); } catch(e) {}
+          var winnerIndex = (winSide === 'A') ? indexA : indexB;
+          var runnerIndex = (winSide === 'A') ? indexB : indexA;
+          // Winner/runner micro reveal animation:
+          // Keep the final coin face (winner side) and glide the coin left,
+          // while runner emerges from behind to the right.
+          try {
+            var faceWrap = c.wrap; // outer container around coin
+            var winnerProfile = JSON.parse(decodeURIComponent($($('.profile')[winnerIndex]).data('profile')));
+            var runnerProfile = JSON.parse(decodeURIComponent($($('.profile')[runnerIndex]).data('profile')));
+            // Blast stream behind winner: longer, streaming, mixed types (fireworks, butterflies, confetti, burst)
+            try {
+              var blast = $("<div class='final-two-blast' style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0'></div>");
+              shell.append(blast);
+              var overlayList = (typeof WINNER_ANIM_VARIANTS !== 'undefined' && WINNER_ANIM_VARIANTS && WINNER_ANIM_VARIANTS.overlay) ? WINNER_ANIM_VARIANTS.overlay : [];
+              var butter = overlayList.filter(function(p){ return /butterfl/i.test(p||''); });
+              var firew  = overlayList.filter(function(p){ return /firework/i.test(p||''); });
+              var conf   = overlayList.filter(function(p){ return /confetti/i.test(p||''); });
+              var burst  = overlayList.filter(function(p){ return /burst/i.test(p||''); });
+              if (!butter.length) butter = ['/assets/lottie/butterflies-magenta.json','/assets/lottie/butterflies-teal.json'];
+              if (!firew.length)  firew  = ['/assets/lottie/fireworks.json','/assets/lottie/fireworks-pink.json','/assets/lottie/fireworks-pastel.json','/assets/lottie/fireworks-glitter.json'];
+              if (!conf.length)   conf   = ['/assets/lottie/confetti.json','/assets/lottie/confetti-pink.json','/assets/lottie/confetti-pastel.json','/assets/lottie/confetti-glitter.json'];
+              if (!burst.length)  burst  = ['/assets/lottie/burst.json','/assets/lottie/burst-pink.json','/assets/lottie/burst-pastel.json','/assets/lottie/burst-glitter.json'];
+              var pickSeq = [firew, butter, conf, firew, butter, burst, conf, firew, butter, burst];
+              var iSpawn = 0;
+              var totalSpawns = 36;
+              var tick = setInterval(function(){
+                if (iSpawn >= totalSpawns) { clearInterval(tick); return; }
+                var set = pickSeq[iSpawn % pickSeq.length] || firew;
+                var path = set[Math.floor(Math.random()*set.length)];
+                var holder = $("<div style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'></div>");
+                var w = 220 + Math.floor(Math.random()*220);
+                var h = 220 + Math.floor(Math.random()*220);
+                var inner = $("<div style='width:"+w+"px;height:"+h+"px;transform-origin:center;opacity:.0'></div>");
+                holder.append(inner); blast.append(holder);
+                var side = (Math.random() < 0.5) ? -1 : 1;
+                var dx = side * (120 + Math.random()*220);
+                var dy = - (90 + Math.random()*160);
+                var rot = (Math.random()*30 - 15).toFixed(1);
+                var dur = 2400 + Math.floor(Math.random()*900);
+                try {
+                  inner[0].animate([
+                    { transform: 'translate(0px, 0px) scale(0.6) rotate('+rot+'deg)', opacity: .0 },
+                    { transform: 'translate('+(dx*0.45)+'px, '+(dy*0.45)+'px) scale(1.0) rotate('+rot+'deg)', opacity: .95 },
+                    { transform: 'translate('+dx+'px, '+dy+'px) scale(1.2) rotate('+rot+'deg)', opacity: .0 }
+                  ], { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+                } catch(e) {}
+                // sanitize and load
+                (function(container, pth){
+                  var sanitize = function(json){
+                    var blocked = /(kurage|watermark|website|mobile|apps|software|lottiefiles|author|credits)/i;
+                    var shouldDrop = function(layer){ var n=(layer&&layer.nm?String(layer.nm):''); return layer.ty===5 || blocked.test(n) || layer.t; };
+                    var strip = function(obj){ if (obj.layers && Array.isArray(obj.layers)) { obj.layers = obj.layers.filter(function(l){ return !shouldDrop(l); }); obj.layers.forEach(strip); } if (obj.assets && Array.isArray(obj.assets)) obj.assets.forEach(strip); return obj; };
+                    try { return strip(json); } catch(e){ return json; }
+                  };
+                  try {
+                    fetch(pth).then(function(r){ return r.json(); }).then(function(data){
+                      var clean = sanitize(data);
+                      if (window.lottie) window.lottie.loadAnimation({ container: container, renderer: 'svg', loop: false, autoplay: true, animationData: clean, rendererSettings: { preserveAspectRatio: 'xMidYMid meet', clearCanvas: false } });
+                    }).catch(function(){});
+                  } catch(e) {}
+                })(inner[0], path);
+                iSpawn++;
+              }, 140);
+              setTimeout(function(){ try { clearInterval(tick); blast.remove(); } catch(e) {} }, 6500);
+            } catch(e) {}
+            // Create a runner image centered behind the coin
+            var overlay = $("<div class='final-two-overlay' style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;'></div>");
+            var runWrap = $("<div class='final-two-runner' style='position:absolute;left:0;top:0;width:180px;height:180px;opacity:0;z-index:1'></div>");
+            var runImg = $("<img alt='runner' />");
+            runImg.attr('src', runnerProfile.avatar || '');
+            runImg.css({ width:'180px', height:'180px', borderRadius:'50%', objectFit:'cover', boxShadow:'0 0 0 4px #e6e6e6, 0 10px 24px rgba(154,154,154,.5)', position:'absolute', left:'0', top:'0' });
+            // Silver medal badge
+            var silver = $("<span class='final-two-medal' style='position:absolute;right:6px;bottom:6px;font-size:78px;z-index:3;color:#fff;filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)) drop-shadow(0 0 10px rgba(255,255,255,.85))'>🥈</span>");
+            // Sparkles around the medal
+            var sp1 = $("<span style='position:absolute;right:-6px;bottom:28px;font-size:18px;color:#fff;filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffb3e6)'>✧</span>");
+            var sp2 = $("<span style='position:absolute;right:28px;bottom:-4px;font-size:22px;color:#fff;filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px #ffc7ef)'>✦</span>");
+            var sp3 = $("<span style='position:absolute;right:-14px;bottom:-10px;font-size:14px;color:#fff;filter: drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #ffd1f3)'>✧</span>");
+            try { sp1[0].animate([{transform:'scale(.8)',opacity:.6},{transform:'scale(1.25)',opacity:1},{transform:'scale(.8)',opacity:.6}],{duration:900,iterations:Infinity}); } catch(e) {}
+            try { sp2[0].animate([{transform:'scale(.9) rotate(0deg)',opacity:.7},{transform:'scale(1.3) rotate(12deg)',opacity:1},{transform:'scale(.9) rotate(0deg)',opacity:.7}],{duration:1050,iterations:Infinity}); } catch(e) {}
+            try { sp3[0].animate([{transform:'scale(.7)',opacity:.5},{transform:'scale(1.2)',opacity:.95},{transform:'scale(.7)',opacity:.5}],{duration:800,iterations:Infinity}); } catch(e) {}
+            runWrap.append(runImg, silver, sp1, sp2, sp3);
+            overlay.append(runWrap);
+            shell.append(overlay);
+            // Animate: keep centered; winner (coin) scales slightly up; runner emerges below
+            faceWrap[0].animate([
+              { transform:'translate(-50%, -50%) scale(1.0)' },
+              { transform:'translate(-50%, -62%) scale(1.12)' }
+            ], { duration: 900, easing: 'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+            runWrap[0].animate([
+              { transform:'translate(-50%, -50%) scale(0.98)', opacity:0 },
+              { transform:'translate(-50%, 130px) scale(0.98)', opacity:1 }
+            ], { duration: 900, easing: 'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+          } catch(e) {}
+          // After micro reveal, proceed to standard winner stage
+          setTimeout(function(){
+            try {
+              var winnerProfile2 = JSON.parse(decodeURIComponent($($('.profile')[winnerIndex]).data('profile')));
+              settings.winners = [winnerProfile2];
+              if (settings.once) settings.winnerList[winnerProfile2['id']] = true;
+              $($('.profile')[winnerIndex]).addClass('is-greyed');
+              $("#dh-lottery-winner .dh-modal-content").html("");
+              pushWinner(winnerProfile2);
+              // Crown emoji on name after reveal text appears
+              setTimeout(function(){
+                try {
+                  var nameEl = $("#dh-lottery-winner .winner-stage .winner-text .profile-name");
+                  if (nameEl && nameEl.length) {
+                    var t = nameEl.text();
+                    if (t && t.indexOf('👑') !== 0) nameEl.text('👑 ' + t);
+                  }
+                } catch(e) {}
+              }, 1600);
+              // Silver 2nd badge on runner-up avatar in grid
+              try {
+                var runnerProfEl = $($('.profile')[runnerIndex]);
+                var avatar = runnerProfEl.find('.avatar .image').first();
+                if (avatar && avatar.length && avatar.find('.dh-badge-silver').length === 0) {
+                  var badge = $("<span class='dh-badge-silver' style='position:absolute;right:-6px;bottom:-6px;background:linear-gradient(135deg,#e6e6e6,#9e9e9e);color:#222;border-radius:16px;padding:4px 8px;font-size:12px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.25),0 0 0 3px rgba(255,255,255,.85);z-index:5'>2nd</span>");
+                  avatar.css('position','relative');
+                  avatar.append(badge);
+                }
+              } catch(e) {}
+              if (settings.confetti) window.startConfetti();
+              if (window.heartsBurst) try { window.heartsBurst(); } catch(e) {}
+              setTimeout(function(){ return window.stopConfetti(); }, 2200);
+              var history = {}; history.time = (new Date()).toLocaleString(); history.winner = {}; history.winner[0] = winnerProfile2;
+              settings.winnerHistory.push(history);
+              localStorage.setItem('lotteryHistory', JSON.stringify(settings.winnerHistory));
+              updateWinnersList();
+            } catch(e) {}
+          }, 1300);
+        };
+      };
+
       var stopLottery = function(){
         // Keep running-lottery state until winner modal appears to avoid overlay flicker
         clearTimeout(lotteryTimeout);
@@ -510,6 +1122,11 @@
         settings.winners = [];
         var elig = getEligibleIndices();
         var finalTargets = [];
+        // Special handling: final-two showdown with coin flip
+        if (elig.length === 2 && settings.number === 1) {
+          startFinalTwoFaceoff(elig[0], elig[1]);
+          return;
+        }
         for (var k = 0; k < settings.number; k++){
           if (elig.length === 0) break;
           var idx = Math.floor(Math.random()*elig.length);
@@ -612,7 +1229,39 @@
       settings.api != null ? loadApi(settings.api) : readyLottery();
       if (!options.number && localStorage.lotteryConfigNumber) {
         settings.number = parseInt(localStorage.lotteryConfigNumber) || 1
-      }
+  }
+
+  // Dev helper to jump to final-two faceoff quickly
+  try {
+    window.devFinalTwo = function(nameA, nameB){
+      try {
+        var pickByName = function(n){
+          if (!n) return null;
+          var key = String(n).toUpperCase();
+          var found = null;
+          $('.profile').each(function(idx, el){
+            try {
+              var prof = JSON.parse(decodeURIComponent($(el).data('profile')));
+              if (prof && String(prof.name).toUpperCase().indexOf(key) === 0) { found = idx; return false; }
+            } catch(e) {}
+          });
+          return found;
+        };
+        var a = pickByName(nameA);
+        var b = pickByName(nameB);
+        if (a == null || b == null) {
+          // fallback to first two eligible
+          var elig = (typeof getEligibleIndices === 'function') ? getEligibleIndices() : [];
+          a = (a==null && elig.length>0) ? elig[0] : a;
+          b = (b==null && elig.length>1) ? elig[1] : b;
+        }
+        if (a == null || b == null || a === b) { console.warn('devFinalTwo: could not resolve two distinct contenders'); return; }
+        // Open modal if needed
+        if (!$('#dh-lottery-winner').length) return console.warn('devFinalTwo: winner modal not available yet');
+        startFinalTwoFaceoff(a, b);
+      } catch(e) { console.error('devFinalTwo failed', e); }
+    };
+  } catch(e) {}
     },
     start : function (){ return startLottery(); },
     stop : function (){ return stopLottery(); },

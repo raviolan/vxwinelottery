@@ -1,5 +1,8 @@
 .dh-lottery {
     margin: 0;
+    /* Space reservations for fixed UI like Roll button */
+    --roll-btn-size: 180px;
+    --roll-btn-gap: 24px;
     background: linear-gradient(135deg, #ff77c8, #ff4fb3, #ffa3d1, #ffd1e8);
     background-size: 300% 300%;
     animation: bgShift 12s ease-in-out infinite;
@@ -150,6 +153,9 @@
   position: absolute;
   /* Use nearly full viewport for grid */
   inset: 2vh;
+  /* Keep grid clear of the Roll button area */
+  padding-right: calc(var(--roll-btn-size) + var(--roll-btn-gap));
+  padding-bottom: calc(var(--roll-btn-size) + var(--roll-btn-gap));
   z-index: 2;
 }
 
@@ -383,7 +389,20 @@
 /* Winner stage with gift box + butterflies + lights */
 .winner-stage { position: relative; width: 100%; margin: 2vh 0 4vh; }
 .winner-stage .winner-center { position: relative; width: 100%; height: 42vh; }
-.winner-stage .winner-lights { position: absolute; inset: 0; opacity: 0.85; z-index: 0; transform: translateY(-6%); pointer-events: none; }
+.winner-stage .winner-lights {
+  position: absolute;
+  opacity: 0.85;
+  z-index: 0;
+  pointer-events: none;
+  transition:
+    left .45s cubic-bezier(.2,.8,.2,1),
+    top .45s cubic-bezier(.2,.8,.2,1),
+    width .45s cubic-bezier(.2,.8,.2,1),
+    height .45s cubic-bezier(.2,.8,.2,1),
+    transform .45s cubic-bezier(.2,.8,.2,1);
+  will-change: left, top, width, height, transform;
+}
+.winner-stage .winner-lights > * { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
 .winner-stage .winner-giftbox { position: absolute; left: 50%; bottom: 0; width: 360px; height: 280px; transform: translateX(-50%); z-index: 2; }
 .winner-stage .winner-butterflies { position: absolute; left: 50%; bottom: 40%; width: 480px; height: 320px; transform: translateX(-50%); pointer-events: none; z-index: 3; }
 .winner-stage .winner-portrait { position: absolute; left: 50%; bottom: 0; width: 240px; height: 240px; border-radius: 50%; transform: translate(-50%, 10px) scale(0.6); opacity: 0; box-shadow: 0 0 0 6px #ff8ccc, 0 10px 32px rgba(255, 102, 178, .8); z-index: 4; }
@@ -398,6 +417,9 @@
   z-index: 6;
   opacity: 0;
   transition: opacity .35s ease;
+  text-align: center;
+  width: 100%;
+  display: block;
 }
 .winner-stage .winner-text.is-visible { opacity: 1; }
 .winner-stage .winner-text .profile-name {
@@ -411,6 +433,10 @@
     0 0 12px rgba(255,140,210,0.95),
     0 0 28px rgba(255,140,210,0.85),
     0 0 56px rgba(255,180,220,0.8);
+  font-family: 'Barbie', cursive, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
 }
 .winner-stage .winner-text .profile-subtitle {
   color: #fff2fa;
